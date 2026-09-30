@@ -38,6 +38,10 @@ export const TEST_FILES: TestFileGroup[] = [
         title: 'Beach | Pixel 10 | AV1 (HLG)',
       },
       {
+        path: 'subtitle_beach_av1_hlg10.mp4',
+        title: 'Subtitle Beach | Pixel 10 | AV1 (HLG)',
+      },
+      {
         path: 'lightsaber_av1_hlg10.mp4',
         title: 'Lightsaber | Pixel 10 | AV1 (HLG)',
       },
@@ -111,6 +115,10 @@ export const TEST_FILES: TestFileGroup[] = [
       {
         path: 'motion_floor_to_sky_av1_hdr10p.mp4',
         title: 'Motion Floor To Sky | GalaxyFold 3 | AV1 HDR10+ (PQ)',
+      },
+      {
+        path: 'subtitle_motion_floor_to_sky_av1_hdr10p.mp4',
+        title: 'Subtitle Motion Floor To Sky | GalaxyFold 3 | AV1 HDR10+ (PQ)',
       },
       {
         path: 'motion_floor_to_sky2_av1_hdr10p.mp4',
