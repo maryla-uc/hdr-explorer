@@ -67,7 +67,6 @@ ts_library(
         "//third_party/hdrscope/app/color_helpers",
         "//third_party/hdrscope/app/panels",
         "//third_party/hdrscope/google_internal:google_internal_lib",
-        "//third_party/hdrscope/google_internal:wasm",
         "//third_party/hdrscope/google_internal/panels",
         "//third_party/javascript/jszip",
         "//third_party/javascript/safevalues/dom",

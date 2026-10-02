@@ -191,9 +191,7 @@ const rendererPanelInfos: Array<PanelInfo<Renderer>> = [
       const renderer = new AgtmRenderer(createCanvas('AgtmPreview'));
       setRendererZoomPan(renderer);
       setRendererHeadroom(renderer);
-      renderer.setMetadata(
-          agtmMetadata,
-      );
+      renderer.setMetadata(agtmMetadata);
       renderer.setShowClamped(showClampedToggle.checked);
       return renderer;
     },
@@ -531,19 +529,14 @@ const rendererPanels: Array<Panel<Renderer>> =
 const miscPanels: Array<Panel<Renderer>> = miscPanelInfos.map(createPanel);
 const allPanels: Array<Panel<Renderer>> = [...rendererPanels, ...miscPanels];
 
-function getPanel(hashName: string): Panel<Renderer> {
-  const panel = allPanels.find((panel) => panel.hashName === hashName);
-  if (!panel) {
-    throw new Error(`Panel with hash name ${hashName} not found`);
-  }
-  return panel;
-}
-
 function getRenderer<T extends Renderer>(
   hashName: string,
   rendererTypeConstructor: new (...args: never[]) => T,
 ): T | null {
-  const panel = getPanel(hashName);
+  const panel = allPanels.find((panel) => panel.hashName === hashName);
+  if (!panel) {
+    throw new Error(`Panel with hash name ${hashName} not found`);
+  }
   if (!panel.renderer) {
     return null;
   }
@@ -556,7 +549,11 @@ function getRenderer<T extends Renderer>(
 }
 
 function getPanelEl(hashName: string): HTMLElement {
-  return getPanel(hashName).panelEl;
+  const panel = allPanels.find((panel) => panel.hashName === hashName);
+  if (!panel) {
+    throw new Error(`Panel with hash name ${hashName} not found`);
+  }
+  return panel.panelEl;
 }
 
 let flipModeVisiblePanel: HTMLInputElement | null = null;
@@ -975,45 +972,53 @@ async function setAgtmMetadata(
       agtmMetadata.baseline_hdr_headroom =
         baselineHeadroomLinear > 0 ? Math.log2(baselineHeadroomLinear) : 0;
     }
+    originalAgtmMetadata = structuredClone(agtmMetadata);
     if (bestStats) {
       setStats(bestStats);
     }
-  } else {
-    const newAgtmMetadata = await getAgtmForType(
-      agtmMetadataType,
-      computedStats,
-      hdrReferenceWhite,
-      baselineHeadroomLinear,
-    );
-    if (!newAgtmMetadata) return;
-    agtmMetadata = newAgtmMetadata;
-
-    // Have the panel fetch the SDR image data which might be different from the
-    // original SDR image.
-    if (
-      decodedMedia !== null &&
-      agtmMetadataType.startsWith('gain_map_') &&
-      agtmMetadata.base_image
-    ) {
-      console.log(
-        'Resetting the base image after computation of AGTM from gain map',
-      );
-      getRenderer('agtm', AgtmRenderer)?.setImage(
-        decodedMedia.imageBitmapSource,
-        agtmMetadata.base_image,
-        contentTransfer,
-        contentPrimaries,
-      );
-      getRenderer('agtm_lut', AgtmRenderer)?.setImage(
-        decodedMedia.imageBitmapSource,
-        agtmMetadata.base_image,
-        contentTransfer,
-        contentPrimaries,
-      );
-      // Discard the base image from the AGTM metadata to free up memory before
-      // the structuredClone below.
-      agtmMetadata.base_image = undefined;
+    if (gainApplicationSpacePrimariesOverridden) {
+      applyGainApplicationSpacePrimaries(agtmMetadata);
     }
+    setComponentMixFunction();
+
+    onMetadataChanged();
+    return;
+  }
+
+  const newAgtmMetadata = await getAgtmForType(
+    agtmMetadataType,
+    computedStats,
+    hdrReferenceWhite,
+    baselineHeadroomLinear,
+  );
+  if (!newAgtmMetadata) return;
+  agtmMetadata = newAgtmMetadata;
+
+  // Have the panel fetch the SDR image data which might be different from the
+  // original SDR image.
+  if (
+    decodedMedia !== null &&
+    agtmMetadataType.startsWith('gain_map_') &&
+    agtmMetadata.base_image
+  ) {
+    console.log(
+      'Resetting the base image after computation of AGTM from gain map',
+    );
+    getRenderer('agtm', AgtmRenderer)?.setImage(
+      decodedMedia.imageBitmapSource,
+      agtmMetadata.base_image,
+      contentTransfer,
+      contentPrimaries,
+    );
+    getRenderer('agtm_lut', AgtmRenderer)?.setImage(
+      decodedMedia.imageBitmapSource,
+      agtmMetadata.base_image,
+      contentTransfer,
+      contentPrimaries,
+    );
+    // Discard the base image from the AGTM metadata to free up memory before
+    // the structuredClone below.
+    agtmMetadata.base_image = undefined;
   }
 
   originalAgtmMetadata = structuredClone(agtmMetadata);
@@ -1172,21 +1177,15 @@ function onMetadataChanged() {
   getPanelEl('json').querySelector('textarea')!.value =
     metadataToJson(agtmMetadata);
   getRenderer('curves', CurveEditor)?.setMetadata(agtmMetadata);
-  getRenderer('agtm', AgtmRenderer)?.setMetadata(
-      agtmMetadata,
-  );
+  getRenderer('agtm', AgtmRenderer)?.setMetadata(agtmMetadata);
   getRenderer('agtm_lut', AgtmRenderer)?.setMetadata(agtmMetadata);
   getRenderer('luma', LumaRenderer)?.setMetadata(agtmMetadata);
   updateCurves3dRenderer();
 }
 
-function ensureDynamicAgtmForTemporalPanels() {
-  const curves3dPanel = getPanel('curves_3d');
-  if (
-    !curves3dPanel.toggle.checked
-  ) {
-    return;
-  }
+function ensureDynamicAgtmForCurves3d() {
+  const curves3dPanel = allPanels.find((p) => p.hashName === 'curves_3d');
+  if (!curves3dPanel?.toggle.checked) return;
   if (
     decodedMedia?.type === 'video' &&
     agtmMetadataType !== 'fromfile' &&
@@ -1202,7 +1201,7 @@ function updateCurves3dRenderer(renderer?: Curves3dRenderer) {
   const r = renderer ?? getRenderer('curves_3d', Curves3dRenderer);
   if (!r) return;
 
-  ensureDynamicAgtmForTemporalPanels();
+  ensureDynamicAgtmForCurves3d();
 
   let frameTimes: number[] = [0];
   let videoDuration = 0;
@@ -1253,14 +1252,7 @@ function updateCurves3dRenderer(renderer?: Curves3dRenderer) {
 
   const currentTime =
     decodedMedia?.type === 'video' ? myVideoEl.currentTime : 0;
-  let smoothedFor3d: AgtmMetadata[] | null = null;
-  r.setCurvesData(
-    frameTimes,
-    metadataList,
-    currentTime,
-    videoDuration,
-    smoothedFor3d,
-  );
+  r.setCurvesData(frameTimes, metadataList, currentTime, videoDuration);
 }
 
 function updateSaveAgtmButtons() {
@@ -2711,6 +2703,7 @@ async function saveDynamicAgtmJson() {
 
   // 2. Check for ready metadata (finished dynamic, custom, or embedded).
   let metadataArray = customAgtmMetadataArray ?? dynamicAgtmMetadata;
+  if (!metadataArray && agtmMetadataType === 'fromfile') {
     metadataArray = getEmbeddedAgtmMetadataList();
   }
 
@@ -2758,6 +2751,7 @@ async function saveDynamicAgtmVideo() {
 
   // 2. Check for ready metadata (finished dynamic or embedded).
   let metadataArray = dynamicAgtmMetadata;
+  if (!metadataArray && agtmMetadataType === 'fromfile') {
     metadataArray = getEmbeddedAgtmMetadataList();
   }
 
@@ -2950,7 +2944,8 @@ export function main() {
     const btn = button as HTMLButtonElement;
     const panelHashName = btn.dataset['panelHashName'];
     if (!panelHashName) return;
-    const panel = getPanel(panelHashName);
+    const panel = allPanels.find((p) => p.hashName === panelHashName);
+    if (!panel) return;
 
     btn.addEventListener('click', (e) => {
       const clickedRenderer = panel.renderer;
@@ -3610,7 +3605,7 @@ export function main() {
 
   // Panel toggles
   for (const panel of rendererPanels) {
-    panel.toggle.addEventListener('change', async () => {
+    panel.toggle.addEventListener('change', () => {
       const updates: {[key: string]: string | null} = {};
       if (panel.toggle.checked === panel.defaultChecked) {
         updates[panel.hashName] = null;
